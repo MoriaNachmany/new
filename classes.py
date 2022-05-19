@@ -1,10 +1,10 @@
 from dataclasses import dataclass
-
 import numpy as np
+import math
+from functools import partial
+ANGLE = 0.01
 
-from utils import norm2
-
-TANGENT_TOLERANCE = 0.01
+p = partial(np.linalg.norm, ord=2)
 
 @dataclass
 class Ray:
@@ -12,44 +12,44 @@ class Ray:
     direction: np.ndarray
 
     def __post_init__(self):
-        self.direction /= norm2(self.direction)
+        self.direction /= p(self.direction)
 
     def project(self, point):
         return np.dot(self.direction, point - self.origin)
 
-    def get_point(self, t):
+    def get_point_at_distance(self, t):
         return self.origin + t * self.direction
 
 @dataclass
 class Camera:
     position:     np.ndarray
     look_at:      np.ndarray
-    up:           np.ndarray
-    screen_dist:  float
+    up_vector:           np.ndarray
+    screen_distance:  float
     screen_width: float
     screen_height: float
 
 
 @dataclass
 class Set:
-    background_rgb:   np.ndarray
-    root_shadow_rays: int
-    max_recursions:   int
+    background_color:   np.ndarray
+    shadow_rays: int
+    max_depth:   int
 
 
 @dataclass
 class Material:
-    diffuse_rgb:  np.ndarray
-    specular_rgb: np.ndarray
-    reflect_rgb:  np.ndarray
+    diffuse_color:  np.ndarray
+    specular_color: np.ndarray
+    reflection_color:  np.ndarray
     phong:        float
-    transp:       float
+    transparency:       float
 
 
 @dataclass
 class Light:
     position:        np.ndarray
-    rgb:             np.ndarray
+    color:             np.ndarray
     specular_intensity: float
     shadow_intensity:   float
     radius:          float
@@ -72,33 +72,29 @@ class Sphere(Shape):
     radius: float
 
     def find_intersection(self, ray: Ray):
-        c = self.center
-        r = self.radius
-        ob_size = ray.project(c)
-        if ob_size <= 0:
+        center = self.center
+        radius = self.radius
+        object_len = ray.project(center)
+        if (object_len <= 0):
             return False
-
-        oc = c - ray.origin
-        oc_size = norm2(oc)
-        cb_size = np.sqrt(oc_size ** 2 - ob_size ** 2)
-        if np.isclose(cb_size, r, rtol=TANGENT_TOLERANCE):
-            return ray.get_point(ob_size)
-
-        if cb_size > r:
+        object_center = center - ray.origin
+        object_len = p(object_center)
+        len = np.sqrt(math.pow(object_len, 2) - math.pow(object_len, 2))
+        if np.isclose(len, radius, rtol=ANGLE):
+            return ray.get_point_at_distance(object_len)
+        if (len > radius):
             return False
-
-        t_diff_abs = np.sqrt(r ** 2 - cb_size ** 2)
-        p1 = ray.get_point(ob_size - t_diff_abs)
-        p2 = ray.get_point(ob_size + t_diff_abs)
-        if np.linalg.norm(ray.origin-p1) < np.linalg.norm(ray.origin-p2):
+        abs = np.sqrt(math.pow(radius, 2) - math.pow(len, 2))
+        p1 = ray.get_point_at_distance(object_len - abs)
+        p2 = ray.get_point_at_distance(object_len + abs)
+        if (np.linalg.norm(ray.origin-p1) < np.linalg.norm(ray.origin-p2)):
             return p1
-        else:
-            return p2
+        return p2
 
     def normal_at_point(self, point: np.array):
-        normal_vec = point-self.center
-        normal_vec = normal_vec/np.linalg.norm(normal_vec)
-        return normal_vec
+        vector_normal = point-self.center
+        vector_normal = vector_normal/np.linalg.norm(vector_normal)
+        return vector_normal
 
 @dataclass
 class Plane(Shape):
@@ -106,16 +102,16 @@ class Plane(Shape):
     offset: float
 
     def __post_init__(self):
-        self.normal /= norm2(self.normal)
+        self.normal /= p(self.normal)
 
     def find_intersection(self, ray: Ray):
 
-        n_dot_d = np.dot(self.normal, ray.direction)
-        if np.isclose(n_dot_d, 0, rtol=0.01):
+        calc_dot = np.dot(self.normal, ray.direction)
+        if np.isclose(calc_dot, 0, rtol=0.01):
             return False
-        n_dot_o = np.dot(self.normal, ray.origin)
-        t = (self.offset - n_dot_o) / n_dot_d
-        point = ray.get_point(t)
+        dot_output = np.dot(self.normal, ray.origin)
+        t = (self.offset - dot_output) / calc_dot
+        point = ray.get_point_at_distance(t)
         return point
 
     def normal_at_point(self, point: np.array):
@@ -129,16 +125,14 @@ class Box(Shape):
     max: np.ndarray
 
     def find_intersection(self, ray: Ray):
-        half_length = self.length / 2
-        box_min = self.center - half_length
-        box_max = self.center + half_length
+        box_min = self.center - self.length / 2
+        box_max = self.center + self.length / 2
         t_min = np.divide(box_min - ray.origin, ray.direction)
         t_max = np.divide(box_max - ray.origin, ray.direction)
-
         if t_min[0] > min(t_max[1], t_max[2]) | t_min[1] > min(t_max[0], t_max[2]) | t_min[2] > min(t_max[0], t_max[1]):
             return False
         t = t_min.max()
-        return ray.get_point(t)
+        return ray.get_point_at_distance(t)
 
     def normal_at_point(self, point:np.array):
         normal = np.zeros(3)
